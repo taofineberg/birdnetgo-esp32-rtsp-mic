@@ -1,0 +1,108 @@
+# Changelog
+
+## 1.8.0 — 2026-05-08
+- RTSP: dual stream endpoints `/audio` (stream 1, legacy `/audio1` alias) and `/audio2`, each independently enable/disable.
+- RTSP: server internals migrated from single-client to configurable 1-3 concurrent sessions (default 2).
+- Transport: auto-derived from backend target (TCP for BirdNET-Go, UDP for BirdNET-Pi), removed manual selector.
+- Backend routing: per-stream target selector BirdNET-Go / BirdNET-Pi persisted in NVS.
+- Per-stream live stats: client count, streaming state, packet rate, last play time.
+- MQTT: reconnect now allowed during streaming with longer interval (120s) instead of blocking indefinitely.
+- mDNS: fixed hostname collision on ESP32-C6 — `buildMqttMacSuffix()` now uses `WiFi.macAddress()` (big-endian) instead of `ESP.getEfuseMac()` (little-endian), which caused boards from the same vendor to share the same default hostname.
+- API: `/api/status` exposes per-stream URLs, enabled state, max_clients, and live stats.
+- API settings: `stream1_enabled`, `stream2_enabled`, `max_clients`, `stream1_target`, `stream2_target`.
+- UI: unified Status card with system info + two stream columns (config + live data).
+- UI: removed hero RTSP URLs (duplicated in Status card).
+- UI: Max Clients selector (1/2/3) in Advanced Settings.
+
+### 1.8.0 Test status
+- Done:
+  - Build/compile on XIAO ESP32-C6 target.
+  - API fields for dual stream present in firmware.
+- Pending (next validation cycle):
+  - End-to-end validation with BirdNET-Go on `/audio`.
+  - End-to-end validation with BirdNET-Pi on `/audio2`.
+  - Mixed transport test (one TCP stream + one UDP stream concurrently).
+  - UI validation for selector persistence after reboot and NVS reload.
+
+## 1.7.0 — 2026-04-29
+- WiFi Reconnect: new API endpoint `/api/action/wifi_reconnect` with optional BSSID pinning for manual WiFi reconnection without reboot.
+- WiFi Reconnect: new "Reconnect Wi-Fi" button in Web UI (Time & Network section).
+- Deep sleep: explicit MQTT offline publish before disconnect for faster Home Assistant detection (independent of LWT timeout).
+- Deep sleep: added `mqttClient.connected()` guard before MQTT operations.
+- Docs: added INMP441 as a user-reported compatible I2S microphone using the same pins as the
+  ICS-43434 reference mic (`SCK` -> GPIO21, `WS` -> GPIO1, `SD` -> GPIO2).
+- Docs: clarified that INMP441 `L/R` or `SEL` should be set to the left channel because the
+  firmware reads `ONLY_LEFT`.
+- Web flasher: manifest version updated to 1.7.0 and `firmware.bin` regenerated from the current
+  merged build.
+
+## 1.6.0 — 2026-02-13
+- MQTT: publish interval is now configurable in UI/API (`mqtt_interval`), persisted in NVS (`mqttIntSec`), default `60 s` (range `10..3600`).
+- MQTT state payload extended with diagnostics: `fw_build`, `reboot_reason`, `restart_counter`, `wifi_ssid`, `wifi_reconnect_count`, `stream_uptime_s`, `client_count`, `audio_format`.
+- MQTT Discovery (Home Assistant): added entities for new diagnostics (build date, reboot reason, restart counter, Wi-Fi reconnects/SSID, stream uptime, client count, sample rate, audio format).
+- MQTT behavior: immediate state publish on key events (Wi-Fi reconnect, stream start/stop, RTSP client connect/disconnect/timeout, schedule/thermal stream stop), while keeping periodic publish interval.
+- Boot diagnostics: reset reason is detected at boot and restart counter is incremented and stored in NVS.
+- API hardening: mutating endpoints now use `POST` only and require header `X-ESP32MIC-CSRF: 1`; UI settings/actions were updated accordingly.
+- API validation: numeric setting parsing is now strict (invalid numeric strings are rejected instead of being coerced).
+- Firmware version bumped to 1.6.0.
+
+## 1.5.0 — 2026-02-11
+- Time & Network: added stream schedule (start/stop local time window) with support for overnight ranges (for example 22:00-06:00).
+- Schedule policy: fail-open when local time is unavailable (stream remains allowed instead of being blocked).
+- Schedule rule update: `stream_start_min == stream_stop_min` is treated as an explicit empty window (stream blocked always), independent of time-sync validity.
+- Time & Network: added optional deep sleep mode outside the stream schedule window (`Deep Sleep (Outside Window)`).
+- Safety policy for deep sleep is conservative to avoid loops and lockouts: requires valid synchronized time, startup grace delay, outside-window stabilization delay, and no active stream/client.
+- Deep sleep is blocked when time is unavailable (unsynced); stream schedule still keeps fail-open behavior.
+- Max one deep-sleep cycle set to 8 hours.
+- Added 5-minute wake guard before stream window start to absorb RTC drift and avoid edge sleep/wake flapping.
+- Deep-sleep diagnostics: after timer wake, firmware logs a retained sleep snapshot (cycle, planned sleep, entered time, schedule window, seconds-until-start at sleep, offset).
+- UI: added Stream Schedule controls, Schedule Status row, and tooltip help for new fields.
+- UI: added tooltip help and double-confirmation dialog when enabling deep sleep.
+- UI/API: new deep sleep status row and status fields (`deep_sleep_sched_enabled`, `deep_sleep_status_code`, `deep_sleep_next_sec`).
+- UI: Time & Network now displays current Local and UTC time (using configured offset) for quick verification.
+- UI logs: autoscroll behavior improved; manual scrolling up no longer jumps back to bottom on periodic refresh.
+- UI mobile: top header/RTSP links now wrap correctly, preventing horizontal overflow scrollbar on narrow screens.
+- API: `/api/status` now exposes `stream_schedule_enabled`, `stream_schedule_start_min`, `stream_schedule_stop_min`, `stream_schedule_allow_now`, and `stream_schedule_time_valid`.
+- API settings: new keys `stream_sched`, `stream_start_min`, `stream_stop_min`, `deep_sleep_sched`.
+- Persistence: new NVS key `deepSchSlp`.
+- Firmware version bumped to 1.5.0.
+
+## 1.4.0 — 2026-02-09
+- Time: NTP sync on boot and every 30 min when internet is reachable; manual time offset (minutes) stored in NVS; logs fall back to uptime when offline.
+- Logs: ring buffer enlarged to 120 lines, each line timestamped; one-click download as text from the Web UI.
+- Network: mDNS hostname `esp32mic.local` (toggle in UI); RTSP links show both IP and mDNS; Wi-Fi credentials reset action added to UI.
+- UI: new Time & Network card, stream URLs moved to header, firmware version bumped to 1.4.0.
+- Docs: README updated with mDNS, time sync/offset, log download, and network reset notes.
+- Sync logic refined: unsynced retry every hour, synced refresh every 6 h; optional Time Sync ON/OFF in UI/NVS; OTA hostname unified with mDNS (`esp32mic.local`).
+
+## 1.3.0 — 2025-09-09
+- Thermal protection: added configurable shutdown limit (30–95 °C, default 80 °C) with protection enabled by default.
+- Thermal latch now persists across reboots and must be acknowledged in the Web UI before RTSP can be re-enabled; UI includes clear button and richer status strings.
+- Firmware: on overheat the RTSP server is stopped, the reason/temperature/timestamp are persisted, and a manual restart is required.
+- Web UI: Thermal card now exposes the protection toggle, limit selector, status badge, last shutdown log, and detailed tooltips.
+- Docs: refreshed defaults and added guidance for the new thermal workflow.
+
+## 1.2.0 — 2025-09-08
+- Added configurable High‑pass filter (HPF) to reduce low‑frequency rumble
+- Web UI: Signal level meter with clip warning and beginner guidance
+- RTSP: respond to `GET_PARAMETER` (keep‑alive) for better client compatibility
+- API: `/api/status` now includes `fw_version`
+- Docs: README updated (defaults, HPF notes, RTSP keep‑alive)
+- Cleanup: removed unused arpa/inet dependency from source
+- Defaults: Gain 1.2, HPF ON at 500 Hz
+
+## 1.1.0 — 2025-09-05
+- Web UI redesign: responsive grid, dark theme, cleaner cards
+- Simplified controls: removed client Start/Stop/Disconnect; Server ON/OFF only
+- Inline editing: change Sample Rate, Gain, Buffer, TX Power directly in fields
+- Reliability: Auto/Manual threshold mode with auto‑computed min packet‑rate
+- New settings: Scheduled reset (ON/OFF + hours), CPU frequency (MHz)
+- Logs: larger panel; every UI action and setting change is logged
+- Performance: faster initial load; immediate apply on Enter/blur
+- Thermal: removed periodic temperature logging (kept high‑temp warning)
+
+## 1.0.0 (Initial public release)
+- Web UI on port 80 (English)
+- JSON API endpoints (status, audio, performance, thermal, logs, actions, settings)
+- In-memory log buffer, performance diagnostics, auto-recovery
+- OTA and WiFiManager included
